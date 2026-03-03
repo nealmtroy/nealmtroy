@@ -21267,6 +21267,23 @@ evolutif
 evolutive
 ex
 excavata
+ex officio
+exist
+existence
+existential
+expansion
+expedition
+export
+expose
+exposition
+expression
+extract
+extension
+external
+extreme
+exclusive
+exotic
+execution
 excellency
 excelsa
 excelsum
@@ -79377,7 +79394,6 @@ zeylanica
 zeylanicus
 zeylonensis
 zhinobatidae
-zi
 zia
 ziadah
 ziarah
@@ -79427,8 +79443,6 @@ zizanivides
 zizantiodes
 zizyphus
 zlacca
-zn
-zo
 zoa
 zodiak
 zodiaknya
@@ -79462,8 +79476,6 @@ zoroaster
 zosopran
 zoster
 zoysia
-zr
-zu
 zuadah
 zuama
 zuhara
