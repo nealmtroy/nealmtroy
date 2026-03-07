@@ -53,6 +53,6 @@ This script is for educational purposes only. Use at your own risk. We are not r
 
 <div align="center">
 
-Made by **NEALMTROY** &nbsp;|&nbsp; [Discord](https://dc.gg/nealmtroy)
+Made with ❤️ by **NEALMTROY** &nbsp;|&nbsp; [Discord](https://dc.gg/nealmtroy)
 
 </div>
