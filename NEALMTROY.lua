@@ -2,7 +2,8 @@ local registeredMaps = {
     [130594398886540] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/GH.lua",
     [119987266683883] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/SLFB.lua",
     [114640202062357] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/SOFB.lua",
-    [139299356663913] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/FOB.lua"
+    [139299356663913] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/FOB.lua",
+    [71827913900569] = "https://raw.githubusercontent.com/nealmtroy/nealmtroy/refs/heads/main/Games/GBFB.lua"
 }
 
 local currentPlaceId = game.PlaceId
