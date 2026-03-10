@@ -16,7 +16,8 @@ A powerful Roblox script hub with rich automation features for a wide range of g
 | Game | Status |
 |------|--------|
 | [Garden Horizons](https://www.roblox.com/games/130594398886540/Garden-Horizons) | 🟢 Working |
-| [Survive Lava for Brainrot](https://www.roblox.com/games/119987266683883/Survive-LAVA-for-Brainrots) | 🟢 Working |
+| [Escape Tsunami for Brainrots](https://www.roblox.com/games/131623223084840/Escape-Tsunami-For-Brainrots) | 🟢 Working |
+| [Survive Lava for Brainrots](https://www.roblox.com/games/119987266683883/Survive-LAVA-for-Brainrots) | 🟢 Working |
 | [Swing Obby for Brainrots](https://www.roblox.com/games/114640202062357/Swing-Obby-for-Brainrots) | 🟢 Working |
 | [Jump for Brainrots](https://www.roblox.com/games/139299356663913/Jump-for-Brainrots) | 🟢 Working |
 | [Grow Beanstalk for Brainrots](https://www.roblox.com/games/71827913900569/Grow-Beanstalk-For-Brainrots) | 🟢 Working |
