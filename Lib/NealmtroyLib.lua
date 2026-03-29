@@ -87,29 +87,32 @@ end
 -- iconString bisa "pack:name" atau "rbxassetid://..."
 local function ApplyIconToLabel(label, iconString, iconColor)
     if type(iconString) ~= "string" or iconString == "" then return end
-
+    
+    print("Applying icon:", iconString) -- Debug
+    
     -- rbxassetid biasa
     if iconString:match("^rbxassetid://") or iconString:match("^%d+$") then
         label.Image = iconString:match("^%d+$") and ("rbxassetid://" .. iconString) or iconString
         if iconColor then label.ImageColor3 = iconColor end
+        print("Set to rbxassetid:", label.Image) -- Debug
         return
     end
-
+    
     -- format "pack:name"
     local result = IconModule.GetIcon(iconString)
     if result then
         local sheetId, data = result[1], result[2]
-        label.Image             = sheetId
-        label.ImageRectSize     = data.ImageRectSize
-        label.ImageRectOffset   = data.ImageRectPosition
+        label.Image = sheetId
+        label.ImageRectSize = data.ImageRectSize
+        label.ImageRectOffset = data.ImageRectPosition
         if iconColor then label.ImageColor3 = iconColor end
+        print("Set from pack:", sheetId) -- Debug
     else
-        -- fallback: coba pakai langsung sebagai URL
+        print("Icon not found:", iconString) -- Debug
         label.Image = iconString
         if iconColor then label.ImageColor3 = iconColor end
     end
 end
-
 -- ------------------------------------------------
 -- LUCIDE PACK (spritesheet dari WindUI assets)
 -- Spritesheet publik: 1024x1024, setiap icon 24x24
