@@ -3,20 +3,48 @@ local TweenService = game:GetService("TweenService")
 local LocalPlayer = game:GetService("Players").LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 local CoreGui = LocalPlayer.PlayerGui
+local HttpService = game:GetService("HttpService")
 
 -- ================================================
--- ICON MODULE (WindUI-style)
--- Format: "pack:icon-name"  contoh: "lucide:home"
--- Juga support rbxassetid:// biasa
---
--- Lucide spritesheet diambil dari asset WindUI/Linoria
--- yang sudah di-upload ke Roblox sebagai spritesheet publik.
--- Setiap icon berukuran 24x24 dalam grid spritesheet 1024px.
+-- ICON MODULE (Seperti WindUI)
+-- Mengambil icon dari repository eksternal
 -- ================================================
 
 local IconModule = {}
 IconModule.Icons = {}
 IconModule.IconsType = nil
+IconModule.IconCache = {}
+
+-- URL repository icon (seperti WindUI)
+local ICON_REPO_URL = "https://raw.githubusercontent.com/Footagesus/Icons/main/Main-v2.lua"
+local IconDatabase = nil
+
+-- Load icon database dari eksternal
+local function LoadIconDatabase()
+    if IconDatabase then return IconDatabase end
+    
+    local success, result = pcall(function()
+        local request = syn and syn.request or request or http_request or function()
+            return game:HttpGetAsync(ICON_REPO_URL)
+        end
+        return game:HttpGetAsync(ICON_REPO_URL)
+    end)
+    
+    if success and result then
+        local iconModule = loadstring(result)
+        if iconModule then
+            IconDatabase = iconModule()
+            if IconDatabase and IconDatabase.SetIconsType then
+                IconDatabase:SetIconsType("lucide")
+            end
+            print("[IconModule] Successfully loaded icon database")
+            return IconDatabase
+        end
+    end
+    
+    print("[IconModule] Failed to load external icons, using fallback")
+    return nil
+end
 
 -- Parse "pack:name" → packName, iconName
 local function parseIconString(iconString)
@@ -30,7 +58,6 @@ local function parseIconString(iconString)
 end
 
 -- Tambah icon pack secara manual
--- packName: string, iconsData: { iconName = rbxassetid atau spritesheet table }
 function IconModule.AddIcons(packName, iconsData)
     if type(packName) ~= "string" or type(iconsData) ~= "table" then return end
     if not IconModule.Icons[packName] then
@@ -39,26 +66,26 @@ function IconModule.AddIcons(packName, iconsData)
     for iconName, iconValue in pairs(iconsData) do
         if type(iconValue) == "string" and iconValue:match("^rbxassetid://") then
             IconModule.Icons[packName].Icons[iconName] = {
-                Image             = iconValue,
-                ImageRectSize     = Vector2.new(0, 0),
+                Image = iconValue,
+                ImageRectSize = Vector2.new(0, 0),
                 ImageRectPosition = Vector2.new(0, 0),
             }
             IconModule.Icons[packName].Spritesheets[iconValue] = iconValue
         elseif type(iconValue) == "number" then
             local id = "rbxassetid://" .. tostring(iconValue)
             IconModule.Icons[packName].Icons[iconName] = {
-                Image             = id,
-                ImageRectSize     = Vector2.new(0, 0),
+                Image = id,
+                ImageRectSize = Vector2.new(0, 0),
                 ImageRectPosition = Vector2.new(0, 0),
             }
             IconModule.Icons[packName].Spritesheets[id] = id
         elseif type(iconValue) == "table" and iconValue.Image then
             local id = type(iconValue.Image) == "number"
                 and "rbxassetid://" .. tostring(iconValue.Image)
-                or  iconValue.Image
+                or iconValue.Image
             IconModule.Icons[packName].Icons[iconName] = {
-                Image             = id,
-                ImageRectSize     = iconValue.ImageRectSize     or Vector2.new(0, 0),
+                Image = id,
+                ImageRectSize = iconValue.ImageRectSize or Vector2.new(0, 0),
                 ImageRectPosition = iconValue.ImageRectPosition or Vector2.new(0, 0),
             }
             if not IconModule.Icons[packName].Spritesheets[id] then
@@ -68,8 +95,18 @@ function IconModule.AddIcons(packName, iconsData)
     end
 end
 
--- Cari data icon, return { sheetId, iconData } atau nil
+-- Cari data icon
 function IconModule.GetIcon(iconString, packOverride)
+    -- Coba dari external database dulu
+    local externalIcons = LoadIconDatabase()
+    if externalIcons and externalIcons.Icon2 then
+        local result = externalIcons.Icon2(iconString)
+        if result then
+            return { result, { ImageRectSize = Vector2.new(0, 0), ImageRectPosition = Vector2.new(0, 0) } }
+        end
+    end
+    
+    -- Fallback ke internal
     local packName, iconName = parseIconString(iconString)
     local targetPack = packOverride or packName or IconModule.IconsType
     local iconSet = IconModule.Icons[targetPack]
@@ -83,180 +120,133 @@ function IconModule.GetIcon(iconString, packOverride)
     return nil
 end
 
--- Apply icon ke ImageLabel yang sudah dibuat
--- iconString bisa "pack:name" atau "rbxassetid://..."
+-- Apply icon ke ImageLabel
 local function ApplyIconToLabel(label, iconString, iconColor)
     if type(iconString) ~= "string" or iconString == "" then return end
-    
-    print("Applying icon:", iconString) -- Debug
-    
+
     -- rbxassetid biasa
     if iconString:match("^rbxassetid://") or iconString:match("^%d+$") then
         label.Image = iconString:match("^%d+$") and ("rbxassetid://" .. iconString) or iconString
         if iconColor then label.ImageColor3 = iconColor end
-        print("Set to rbxassetid:", label.Image) -- Debug
         return
     end
-    
+
     -- format "pack:name"
     local result = IconModule.GetIcon(iconString)
     if result then
         local sheetId, data = result[1], result[2]
         label.Image = sheetId
-        label.ImageRectSize = data.ImageRectSize
-        label.ImageRectOffset = data.ImageRectPosition
+        if data.ImageRectSize and data.ImageRectSize ~= Vector2.new(0, 0) then
+            label.ImageRectSize = data.ImageRectSize
+            label.ImageRectOffset = data.ImageRectPosition
+        end
         if iconColor then label.ImageColor3 = iconColor end
-        print("Set from pack:", sheetId) -- Debug
     else
-        print("Icon not found:", iconString) -- Debug
+        -- fallback: coba pakai langsung sebagai URL
         label.Image = iconString
         if iconColor then label.ImageColor3 = iconColor end
     end
 end
--- ------------------------------------------------
--- LUCIDE PACK (spritesheet dari WindUI assets)
--- Spritesheet publik: 1024x1024, setiap icon 24x24
--- Total 42 icon umum yang paling sering dipakai
--- Asset ID spritesheet: rbxassetid://12933716960
--- (WindUI public spritesheet — bisa dipakai langsung)
--- ------------------------------------------------
--- Karena spritesheet Lucide WindUI tidak selalu
--- tersedia publik, kita pakai pendekatan hybrid:
--- icon populer = rbxassetid individual dari Roblox toolbox,
--- sisanya fallback ke rbxassetid default.
--- ------------------------------------------------
 
-local LUCIDE_ICONS = {
+-- ================================================
+-- FALLBACK ICON (jika external database gagal)
+-- ================================================
+
+local FALLBACK_ICONS = {
     -- Navigation & UI
-    ["home"]        = 10734950959,
-    ["settings"]    = 10734951407,
-    ["menu"]        = 10734950983,
-    ["search"]      = 10734951390,
-    ["x"]           = 10734951457,
-    ["check"]       = 10734950871,
-    ["plus"]        = 10734951357,
-    ["minus"]       = 10734950993,
-    ["chevron-down"]  = 10734950848,
-    ["chevron-up"]    = 10734950855,
-    ["chevron-left"]  = 10734950842,
-    ["chevron-right"] = 10734950852,
-    ["arrow-left"]  = 10734950820,
-    ["arrow-right"] = 10734950825,
-    ["arrow-up"]    = 10734950830,
-    ["arrow-down"]  = 10734950816,
+    ["home"] = "rbxassetid://10734950959",
+    ["settings"] = "rbxassetid://10734951407",
+    ["menu"] = "rbxassetid://10734950983",
+    ["search"] = "rbxassetid://10734951390",
+    ["x"] = "rbxassetid://10734951457",
+    ["check"] = "rbxassetid://10734950871",
+    ["plus"] = "rbxassetid://10734951357",
+    ["minus"] = "rbxassetid://10734950993",
+    ["chevron-down"] = "rbxassetid://10734950848",
+    ["chevron-up"] = "rbxassetid://10734950855",
+    ["chevron-left"] = "rbxassetid://10734950842",
+    ["chevron-right"] = "rbxassetid://10734950852",
+    ["arrow-left"] = "rbxassetid://10734950820",
+    ["arrow-right"] = "rbxassetid://10734950825",
+    ["arrow-up"] = "rbxassetid://10734950830",
+    ["arrow-down"] = "rbxassetid://10734950816",
     -- People & Social
-    ["user"]        = 10734951440,
-    ["users"]       = 10734951448,
-    ["user-plus"]   = 10734951445,
+    ["user"] = "rbxassetid://10734951440",
+    ["users"] = "rbxassetid://10734951448",
     -- Files & Data
-    ["file"]        = 10734950915,
-    ["folder"]      = 10734950924,
-    ["copy"]        = 10734950882,
-    ["trash-2"]     = 10734951430,
-    ["save"]        = 10734951383,
-    ["download"]    = 10734950895,
-    ["upload"]      = 10734951437,
+    ["file"] = "rbxassetid://10734950915",
+    ["folder"] = "rbxassetid://10734950924",
+    ["copy"] = "rbxassetid://10734950882",
+    ["trash"] = "rbxassetid://10734951430",
+    ["save"] = "rbxassetid://10734951383",
+    ["download"] = "rbxassetid://10734950895",
+    ["upload"] = "rbxassetid://10734951437",
     -- Communication
-    ["bell"]        = 10734950836,
-    ["mail"]        = 10734950977,
-    ["message-square"] = 10734950990,
+    ["bell"] = "rbxassetid://10734950836",
+    ["mail"] = "rbxassetid://10734950977",
+    ["message"] = "rbxassetid://10734950990",
     -- Tools
-    ["wrench"]      = 10734951454,
-    ["settings-2"]  = 10734951403,
-    ["sliders"]     = 10734951413,
-    ["filter"]      = 10734950921,
-    ["edit"]        = 10734950898,
-    ["scissors"]    = 10734951387,
+    ["wrench"] = "rbxassetid://10734951454",
+    ["filter"] = "rbxassetid://10734950921",
+    ["edit"] = "rbxassetid://10734950898",
     -- Status & Info
-    ["info"]        = 10734950959,
-    ["alert-circle"] = 10734950806,
-    ["alert-triangle"] = 10734950810,
-    ["check-circle"] = 10734950867,
-    ["x-circle"]    = 10734951460,
+    ["info"] = "rbxassetid://10734950959",
+    ["alert"] = "rbxassetid://10734950806",
+    ["warning"] = "rbxassetid://10734950810",
     -- Gaming / Misc
-    ["skull"]       = 10734951417,
-    ["zap"]         = 10734951464,
-    ["star"]        = 10734951420,
-    ["heart"]       = 10734950939,
-    ["shield"]      = 10734951397,
-    ["lock"]        = 10734950970,
-    ["unlock"]      = 10734951434,
-    ["eye"]         = 10734950908,
-    ["eye-off"]     = 10734950912,
-    ["map-pin"]     = 10734950980,
-    ["target"]      = 10734951424,
-    ["crosshair"]   = 10734950889,
-    ["globe"]       = 10734950932,
-    ["wifi"]        = 10734951451,
-    ["bluetooth"]   = 10734950839,
-    ["battery"]     = 10734950833,
-    ["camera"]      = 10734950863,
-    ["image"]       = 10734950955,
-    ["video"]       = 10734951444,
-    ["mic"]         = 10734950986,
-    ["volume-2"]    = 10734951448,
-    ["music"]       = 10734950996,
-    ["play"]        = 10734951350,
-    ["pause"]       = 10734951340,
-    ["stop-circle"] = 10734951423,
-    ["refresh-cw"]  = 10734951367,
-    ["rotate-ccw"]  = 10734951377,
-    ["rotate-cw"]   = 10734951380,
-    ["plane"]       = 10734951343,
-    ["sword"]       = 10734951426,
-    ["flame"]       = 10734950918,
-    ["activity"]    = 10734950803,
-    ["cpu"]         = 10734950886,
-    ["monitor"]     = 10734950993,
-    ["smartphone"]  = 10734951410,
-    ["layout"]      = 10734950967,
-    ["layers"]      = 10734950964,
-    ["grid"]        = 10734950936,
-    ["list"]        = 10734950968,
-    ["code"]        = 10734950878,
-    ["terminal"]    = 10734951427,
-    ["package"]     = 10734951337,
-    ["box"]         = 10734950843,
-    ["database"]    = 10734950892,
-    ["server"]      = 10734951393,
-    ["cloud"]       = 10734950875,
-    ["link"]        = 10734950967,
-    ["external-link"] = 10734950905,
-    ["share"]       = 10734951394,
-    ["bookmark"]    = 10734950840,
-    ["tag"]         = 10734951424,
-    ["hash"]        = 10734950936,
-    ["percent"]     = 10734951344,
-    ["dollar-sign"] = 10734950899,
-    ["clock"]       = 10734950873,
-    ["calendar"]    = 10734950860,
-    ["sun"]         = 10734951423,
-    ["moon"]        = 10734950996,
-    ["cloud-rain"]  = 10734950876,
-    ["map"]         = 10734950978,
-    ["compass"]     = 10734950879,
-    ["navigation"]  = 10734951002,
+    ["skull"] = "rbxassetid://10734951417",
+    ["zap"] = "rbxassetid://10734951464",
+    ["star"] = "rbxassetid://10734951420",
+    ["heart"] = "rbxassetid://10734950939",
+    ["shield"] = "rbxassetid://10734951397",
+    ["lock"] = "rbxassetid://10734950970",
+    ["unlock"] = "rbxassetid://10734951434",
+    ["eye"] = "rbxassetid://10734950908",
+    ["eye-off"] = "rbxassetid://10734950912",
+    ["map-pin"] = "rbxassetid://10734950980",
+    ["target"] = "rbxassetid://10734951424",
+    ["globe"] = "rbxassetid://10734950932",
+    ["camera"] = "rbxassetid://10734950863",
+    ["image"] = "rbxassetid://10734950955",
+    ["video"] = "rbxassetid://10734951444",
+    ["mic"] = "rbxassetid://10734950986",
+    ["music"] = "rbxassetid://10734950996",
+    ["play"] = "rbxassetid://10734951350",
+    ["pause"] = "rbxassetid://10734951340",
+    ["refresh"] = "rbxassetid://10734951367",
+    ["flame"] = "rbxassetid://10734950918",
+    ["code"] = "rbxassetid://10734950878",
+    ["terminal"] = "rbxassetid://10734951427",
+    ["database"] = "rbxassetid://10734950892",
+    ["server"] = "rbxassetid://10734951393",
+    ["cloud"] = "rbxassetid://10734950875",
+    ["clock"] = "rbxassetid://10734950873",
+    ["calendar"] = "rbxassetid://10734950860",
+    ["sun"] = "rbxassetid://10734951423",
+    ["moon"] = "rbxassetid://10734950996",
+    ["compass"] = "rbxassetid://10734950879",
 }
 
--- Daftarkan Lucide pack
+-- Daftarkan fallback icon
 do
-    local lucidePack = { Icons = {}, Spritesheets = {} }
-    for iconName, assetId in pairs(LUCIDE_ICONS) do
-        local id = "rbxassetid://" .. tostring(assetId)
-        lucidePack.Icons[iconName] = {
-            Image             = id,
-            ImageRectSize     = Vector2.new(0, 0),
+    local fallbackPack = { Icons = {}, Spritesheets = {} }
+    for iconName, assetId in pairs(FALLBACK_ICONS) do
+        fallbackPack.Icons[iconName] = {
+            Image = assetId,
+            ImageRectSize = Vector2.new(0, 0),
             ImageRectPosition = Vector2.new(0, 0),
         }
-        lucidePack.Spritesheets[id] = id
+        fallbackPack.Spritesheets[assetId] = assetId
     end
-    IconModule.Icons["lucide"] = lucidePack
+    IconModule.Icons["lucide"] = fallbackPack
 end
+
+-- Set default pack
+IconModule.IconsType = "lucide"
 
 -- ================================================
 -- END ICON MODULE
 -- ================================================
-
 
 local function MakeDraggable(topbarobject, object)
 	local function CustomPos(topbarobject, object)
