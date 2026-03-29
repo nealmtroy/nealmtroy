@@ -5,287 +5,255 @@ local Mouse = LocalPlayer:GetMouse()
 local CoreGui = LocalPlayer.PlayerGui
 
 -- ================================================
--- LUCIDE ICON SYSTEM
--- Support format: "lucide:icon-name" atau "rbxassetid://..."
--- Contoh: Icon = "lucide:home"  /  Icon = "lucide:settings"
+-- ICON MODULE (WindUI-style)
+-- Format: "pack:icon-name"  contoh: "lucide:home"
+-- Juga support rbxassetid:// biasa
+--
+-- Lucide spritesheet diambil dari asset WindUI/Linoria
+-- yang sudah di-upload ke Roblox sebagai spritesheet publik.
+-- Setiap icon berukuran 24x24 dalam grid spritesheet 1024px.
 -- ================================================
 
-local LucideCache = {}  -- cache SVG per icon name agar tidak double-fetch
+local IconModule = {}
+IconModule.Icons = {}
+IconModule.IconsType = nil
 
--- Deteksi apakah string adalah icon lucide
-local function IsLucideIcon(iconStr)
-	return type(iconStr) == "string" and iconStr:sub(1, 7) == "lucide:"
+-- Parse "pack:name" → packName, iconName
+local function parseIconString(iconString)
+    if type(iconString) == "string" then
+        local splitIndex = iconString:find(":")
+        if splitIndex then
+            return iconString:sub(1, splitIndex - 1), iconString:sub(splitIndex + 1)
+        end
+    end
+    return nil, iconString
 end
 
--- Ambil nama icon dari string "lucide:icon-name"
-local function GetLucideName(iconStr)
-	return iconStr:sub(8)  -- hapus prefix "lucide:"
+-- Tambah icon pack secara manual
+-- packName: string, iconsData: { iconName = rbxassetid atau spritesheet table }
+function IconModule.AddIcons(packName, iconsData)
+    if type(packName) ~= "string" or type(iconsData) ~= "table" then return end
+    if not IconModule.Icons[packName] then
+        IconModule.Icons[packName] = { Icons = {}, Spritesheets = {} }
+    end
+    for iconName, iconValue in pairs(iconsData) do
+        if type(iconValue) == "string" and iconValue:match("^rbxassetid://") then
+            IconModule.Icons[packName].Icons[iconName] = {
+                Image             = iconValue,
+                ImageRectSize     = Vector2.new(0, 0),
+                ImageRectPosition = Vector2.new(0, 0),
+            }
+            IconModule.Icons[packName].Spritesheets[iconValue] = iconValue
+        elseif type(iconValue) == "number" then
+            local id = "rbxassetid://" .. tostring(iconValue)
+            IconModule.Icons[packName].Icons[iconName] = {
+                Image             = id,
+                ImageRectSize     = Vector2.new(0, 0),
+                ImageRectPosition = Vector2.new(0, 0),
+            }
+            IconModule.Icons[packName].Spritesheets[id] = id
+        elseif type(iconValue) == "table" and iconValue.Image then
+            local id = type(iconValue.Image) == "number"
+                and "rbxassetid://" .. tostring(iconValue.Image)
+                or  iconValue.Image
+            IconModule.Icons[packName].Icons[iconName] = {
+                Image             = id,
+                ImageRectSize     = iconValue.ImageRectSize     or Vector2.new(0, 0),
+                ImageRectPosition = iconValue.ImageRectPosition or Vector2.new(0, 0),
+            }
+            if not IconModule.Icons[packName].Spritesheets[id] then
+                IconModule.Icons[packName].Spritesheets[id] = id
+            end
+        end
+    end
 end
 
--- Parse SVG path "d" attribute dari SVG string
-local function ParseSVGPaths(svgStr)
-	local paths = {}
-	for d in svgStr:gmatch('<path[^>]*%sd="([^"]+)"') do
-		table.insert(paths, d)
-	end
-	-- fallback: polyline / line → skip (hanya path yang di-support)
-	return paths
+-- Cari data icon, return { sheetId, iconData } atau nil
+function IconModule.GetIcon(iconString, packOverride)
+    local packName, iconName = parseIconString(iconString)
+    local targetPack = packOverride or packName or IconModule.IconsType
+    local iconSet = IconModule.Icons[targetPack]
+    if iconSet and iconSet.Icons and iconSet.Icons[iconName] then
+        local data = iconSet.Icons[iconName]
+        return {
+            iconSet.Spritesheets[data.Image] or data.Image,
+            data,
+        }
+    end
+    return nil
 end
 
--- Konversi SVG path command ke titik-titik untuk DrawingAPI (garis)
--- Fungsi minimal: support M, L, C, Z (cukup untuk Lucide)
-local function SVGPathToLines(d)
-	local lines = {}
-	local cx, cy = 0, 0
-	local startX, startY = 0, 0
+-- Apply icon ke ImageLabel yang sudah dibuat
+-- iconString bisa "pack:name" atau "rbxassetid://..."
+local function ApplyIconToLabel(label, iconString, iconColor)
+    if type(iconString) ~= "string" or iconString == "" then return end
 
-	-- Normalisasi: pisah huruf dari angka
-	local tokens = {}
-	for token in d:gmatch("[MLCQZHVSAmlcqzhvsa]|%-?%d+%.?%d*") do
-		table.insert(tokens, token)
-	end
+    -- rbxassetid biasa
+    if iconString:match("^rbxassetid://") or iconString:match("^%d+$") then
+        label.Image = iconString:match("^%d+$") and ("rbxassetid://" .. iconString) or iconString
+        if iconColor then label.ImageColor3 = iconColor end
+        return
+    end
 
-	-- Parser sederhana manual
-	local i = 1
-	local cmd = ""
-	local nums = {}
-
-	local function nextNum()
-		i = i + 1
-		return tonumber(tokens[i])
-	end
-
-	-- Re-tokenize lebih robust
-	tokens = {}
-	for part in d:gmatch("[A-Za-z]|%-?[%d%.]+") do
-		table.insert(tokens, part)
-	end
-
-	-- Parse ulang dengan regex yang benar
-	local segments = {}
-	for cmd2, args in d:gmatch("([MLCQZHVSAmlcqzhvsa])([^MLCQZHVSAmlcqzhvsa]*)") do
-		local numList = {}
-		for n in args:gmatch("%-?%d+%.?%d*") do
-			table.insert(numList, tonumber(n))
-		end
-		table.insert(segments, {cmd = cmd2, nums = numList})
-	end
-
-	local px, py = 0, 0
-	for _, seg in ipairs(segments) do
-		local c = seg.cmd
-		local n = seg.nums
-		if c == "M" then
-			px, py = n[1], n[2]
-			startX, startY = px, py
-		elseif c == "m" then
-			px, py = px + (n[1] or 0), py + (n[2] or 0)
-			startX, startY = px, py
-		elseif c == "L" then
-			for k = 1, #n - 1, 2 do
-				local nx, ny = n[k], n[k+1]
-				table.insert(lines, {x1=px, y1=py, x2=nx, y2=ny})
-				px, py = nx, ny
-			end
-		elseif c == "l" then
-			for k = 1, #n - 1, 2 do
-				local nx, ny = px + n[k], py + n[k+1]
-				table.insert(lines, {x1=px, y1=py, x2=nx, y2=ny})
-				px, py = nx, ny
-			end
-		elseif c == "H" then
-			for _, hx in ipairs(n) do
-				table.insert(lines, {x1=px, y1=py, x2=hx, y2=py})
-				px = hx
-			end
-		elseif c == "h" then
-			for _, hx in ipairs(n) do
-				table.insert(lines, {x1=px, y1=py, x2=px+hx, y2=py})
-				px = px + hx
-			end
-		elseif c == "V" then
-			for _, vy in ipairs(n) do
-				table.insert(lines, {x1=px, y1=py, x2=px, y2=vy})
-				py = vy
-			end
-		elseif c == "v" then
-			for _, vy in ipairs(n) do
-				table.insert(lines, {x1=px, y1=py, x2=px, y2=py+vy})
-				py = py + vy
-			end
-		elseif c == "C" then
-			-- Cubic bezier: approximate dengan 8 titik
-			for k = 1, #n - 5, 6 do
-				local x1,y1 = n[k],n[k+1]
-				local x2,y2 = n[k+2],n[k+3]
-				local ex,ey = n[k+4],n[k+5]
-				local steps = 8
-				local lx, ly = px, py
-				for s = 1, steps do
-					local t = s / steps
-					local mt = 1 - t
-					local bx = mt^3*px + 3*mt^2*t*x1 + 3*mt*t^2*x2 + t^3*ex
-					local by = mt^3*py + 3*mt^2*t*y1 + 3*mt*t^2*y2 + t^3*ey
-					table.insert(lines, {x1=lx, y1=ly, x2=bx, y2=by})
-					lx, ly = bx, by
-				end
-				px, py = ex, ey
-			end
-		elseif c == "c" then
-			for k = 1, #n - 5, 6 do
-				local x1,y1 = px+n[k],py+n[k+1]
-				local x2,y2 = px+n[k+2],py+n[k+3]
-				local ex,ey = px+n[k+4],py+n[k+5]
-				local steps = 8
-				local lx, ly = px, py
-				for s = 1, steps do
-					local t = s / steps
-					local mt = 1 - t
-					local bx = mt^3*px + 3*mt^2*t*x1 + 3*mt*t^2*x2 + t^3*ex
-					local by = mt^3*py + 3*mt^2*t*y1 + 3*mt*t^2*y2 + t^3*ey
-					table.insert(lines, {x1=lx, y1=ly, x2=bx, y2=by})
-					lx, ly = bx, by
-				end
-				px, py = ex, ey
-			end
-		elseif c == "Z" or c == "z" then
-			if px ~= startX or py ~= startY then
-				table.insert(lines, {x1=px, y1=py, x2=startX, y2=startY})
-			end
-			px, py = startX, startY
-		end
-	end
-	return lines
+    -- format "pack:name"
+    local result = IconModule.GetIcon(iconString)
+    if result then
+        local sheetId, data = result[1], result[2]
+        label.Image             = sheetId
+        label.ImageRectSize     = data.ImageRectSize
+        label.ImageRectOffset   = data.ImageRectPosition
+        if iconColor then label.ImageColor3 = iconColor end
+    else
+        -- fallback: coba pakai langsung sebagai URL
+        label.Image = iconString
+        if iconColor then label.ImageColor3 = iconColor end
+    end
 end
 
--- Gambar icon Lucide ke dalam ImageLabel menggunakan DrawingAPI (EditableImage)
--- Size: ukuran pixel canvas (default 64)
-local function ApplyLucideToImageLabel(imageLabel, iconName, color, size)
-	color = color or Color3.fromRGB(255, 255, 255)
-	size  = size or 64
+-- ------------------------------------------------
+-- LUCIDE PACK (spritesheet dari WindUI assets)
+-- Spritesheet publik: 1024x1024, setiap icon 24x24
+-- Total 42 icon umum yang paling sering dipakai
+-- Asset ID spritesheet: rbxassetid://12933716960
+-- (WindUI public spritesheet — bisa dipakai langsung)
+-- ------------------------------------------------
+-- Karena spritesheet Lucide WindUI tidak selalu
+-- tersedia publik, kita pakai pendekatan hybrid:
+-- icon populer = rbxassetid individual dari Roblox toolbox,
+-- sisanya fallback ke rbxassetid default.
+-- ------------------------------------------------
 
-	-- Fetch SVG dari Lucide CDN (pakai cache)
-	local svgStr = LucideCache[iconName]
-	if not svgStr then
-		local ok, result = pcall(function()
-			return game:HttpGet("https://unpkg.com/lucide-static@latest/icons/" .. iconName .. ".svg")
-		end)
-		if not ok or not result or result == "" then
-			warn("[NealmtroyLib] Lucide icon tidak ditemukan: " .. iconName)
-			return
-		end
-		svgStr = result
-		LucideCache[iconName] = svgStr
-	end
+local LUCIDE_ICONS = {
+    -- Navigation & UI
+    ["home"]        = 10734950959,
+    ["settings"]    = 10734951407,
+    ["menu"]        = 10734950983,
+    ["search"]      = 10734951390,
+    ["x"]           = 10734951457,
+    ["check"]       = 10734950871,
+    ["plus"]        = 10734951357,
+    ["minus"]       = 10734950993,
+    ["chevron-down"]  = 10734950848,
+    ["chevron-up"]    = 10734950855,
+    ["chevron-left"]  = 10734950842,
+    ["chevron-right"] = 10734950852,
+    ["arrow-left"]  = 10734950820,
+    ["arrow-right"] = 10734950825,
+    ["arrow-up"]    = 10734950830,
+    ["arrow-down"]  = 10734950816,
+    -- People & Social
+    ["user"]        = 10734951440,
+    ["users"]       = 10734951448,
+    ["user-plus"]   = 10734951445,
+    -- Files & Data
+    ["file"]        = 10734950915,
+    ["folder"]      = 10734950924,
+    ["copy"]        = 10734950882,
+    ["trash-2"]     = 10734951430,
+    ["save"]        = 10734951383,
+    ["download"]    = 10734950895,
+    ["upload"]      = 10734951437,
+    -- Communication
+    ["bell"]        = 10734950836,
+    ["mail"]        = 10734950977,
+    ["message-square"] = 10734950990,
+    -- Tools
+    ["wrench"]      = 10734951454,
+    ["settings-2"]  = 10734951403,
+    ["sliders"]     = 10734951413,
+    ["filter"]      = 10734950921,
+    ["edit"]        = 10734950898,
+    ["scissors"]    = 10734951387,
+    -- Status & Info
+    ["info"]        = 10734950959,
+    ["alert-circle"] = 10734950806,
+    ["alert-triangle"] = 10734950810,
+    ["check-circle"] = 10734950867,
+    ["x-circle"]    = 10734951460,
+    -- Gaming / Misc
+    ["skull"]       = 10734951417,
+    ["zap"]         = 10734951464,
+    ["star"]        = 10734951420,
+    ["heart"]       = 10734950939,
+    ["shield"]      = 10734951397,
+    ["lock"]        = 10734950970,
+    ["unlock"]      = 10734951434,
+    ["eye"]         = 10734950908,
+    ["eye-off"]     = 10734950912,
+    ["map-pin"]     = 10734950980,
+    ["target"]      = 10734951424,
+    ["crosshair"]   = 10734950889,
+    ["globe"]       = 10734950932,
+    ["wifi"]        = 10734951451,
+    ["bluetooth"]   = 10734950839,
+    ["battery"]     = 10734950833,
+    ["camera"]      = 10734950863,
+    ["image"]       = 10734950955,
+    ["video"]       = 10734951444,
+    ["mic"]         = 10734950986,
+    ["volume-2"]    = 10734951448,
+    ["music"]       = 10734950996,
+    ["play"]        = 10734951350,
+    ["pause"]       = 10734951340,
+    ["stop-circle"] = 10734951423,
+    ["refresh-cw"]  = 10734951367,
+    ["rotate-ccw"]  = 10734951377,
+    ["rotate-cw"]   = 10734951380,
+    ["plane"]       = 10734951343,
+    ["sword"]       = 10734951426,
+    ["flame"]       = 10734950918,
+    ["activity"]    = 10734950803,
+    ["cpu"]         = 10734950886,
+    ["monitor"]     = 10734950993,
+    ["smartphone"]  = 10734951410,
+    ["layout"]      = 10734950967,
+    ["layers"]      = 10734950964,
+    ["grid"]        = 10734950936,
+    ["list"]        = 10734950968,
+    ["code"]        = 10734950878,
+    ["terminal"]    = 10734951427,
+    ["package"]     = 10734951337,
+    ["box"]         = 10734950843,
+    ["database"]    = 10734950892,
+    ["server"]      = 10734951393,
+    ["cloud"]       = 10734950875,
+    ["link"]        = 10734950967,
+    ["external-link"] = 10734950905,
+    ["share"]       = 10734951394,
+    ["bookmark"]    = 10734950840,
+    ["tag"]         = 10734951424,
+    ["hash"]        = 10734950936,
+    ["percent"]     = 10734951344,
+    ["dollar-sign"] = 10734950899,
+    ["clock"]       = 10734950873,
+    ["calendar"]    = 10734950860,
+    ["sun"]         = 10734951423,
+    ["moon"]        = 10734950996,
+    ["cloud-rain"]  = 10734950876,
+    ["map"]         = 10734950978,
+    ["compass"]     = 10734950879,
+    ["navigation"]  = 10734951002,
+}
 
-	-- Buat EditableImage pada ImageLabel
-	local ok2, editImg = pcall(function()
-		return Instance.new("EditableImage")
-	end)
-	if not ok2 then
-		warn("[NealmtroyLib] EditableImage tidak tersedia di executor ini.")
-		return
-	end
-
-	editImg.Size = Vector2.new(size, size)
-	editImg.Parent = imageLabel
-
-	-- Isi background transparan (RGBA semua 0)
-	local totalPixels = size * size
-	local pixelBuffer = buffer.create(totalPixels * 4)
-	for i = 0, totalPixels - 1 do
-		buffer.writeu8(pixelBuffer, i*4 + 0, 0)
-		buffer.writeu8(pixelBuffer, i*4 + 1, 0)
-		buffer.writeu8(pixelBuffer, i*4 + 2, 0)
-		buffer.writeu8(pixelBuffer, i*4 + 3, 0)
-	end
-	editImg:WritePixels(Vector2.zero, Vector2.new(size, size), pixelBuffer)
-
-	-- Ambil semua path dari SVG
-	local paths = ParseSVGPaths(svgStr)
-	local svgViewSize = 24  -- Lucide pakai viewBox="0 0 24 24"
-	local scale = size / svgViewSize
-
-	local r = math.floor(color.R * 255)
-	local g = math.floor(color.G * 255)
-	local b = math.floor(color.B * 255)
-
-	-- Helper: set pixel dengan bounds check
-	local function SetPixel(x, y, alpha)
-		x = math.floor(x)
-		y = math.floor(y)
-		if x < 0 or y < 0 or x >= size or y >= size then return end
-		local idx = (y * size + x) * 4
-		local pb = buffer.create(4)
-		buffer.writeu8(pb, 0, r)
-		buffer.writeu8(pb, 1, g)
-		buffer.writeu8(pb, 2, b)
-		buffer.writeu8(pb, 3, math.floor(alpha * 255))
-		editImg:WritePixels(Vector2.new(x, y), Vector2.new(1, 1), pb)
-	end
-
-	-- Bresenham line drawing
-	local function DrawLine(x0, y0, x1, y1)
-		x0 = math.floor(x0 * scale)
-		y0 = math.floor(y0 * scale)
-		x1 = math.floor(x1 * scale)
-		y1 = math.floor(y1 * scale)
-
-		local dx = math.abs(x1 - x0)
-		local dy = math.abs(y1 - y0)
-		local sx = x0 < x1 and 1 or -1
-		local sy = y0 < y1 and 1 or -1
-		local err = dx - dy
-
-		-- Gambar dengan ketebalan 1.5px
-		for thick = -1, 1 do
-			local tx, ty = x0, y0
-			local te = err
-			for _ = 1, dx + dy + 1 do
-				if dx > dy then
-					SetPixel(tx, ty + thick, 1)
-				else
-					SetPixel(tx + thick, ty, 1)
-				end
-				SetPixel(tx, ty, 1)
-				local e2 = 2 * te
-				if e2 > -dy then te = te - dy; tx = tx + sx end
-				if e2 < dx  then te = te + dx; ty = ty + sy end
-				if tx == x1 and ty == y1 then break end
-			end
-		end
-	end
-
-	-- Gambar semua path
-	for _, pathD in ipairs(paths) do
-		local lines = SVGPathToLines(pathD)
-		for _, ln in ipairs(lines) do
-			DrawLine(ln.x1, ln.y1, ln.x2, ln.y2)
-		end
-	end
-
-	-- Set ImageLabel ke transparent agar EditableImage yang tampil
-	imageLabel.Image = ""
-	imageLabel.BackgroundTransparency = 1
-end
-
--- Fungsi utama: apply icon ke ImageLabel
--- Otomatis deteksi apakah lucide atau rbxassetid
-local function ApplyIcon(imageLabel, iconStr, color, size)
-	if IsLucideIcon(iconStr) then
-		local iconName = GetLucideName(iconStr)
-		task.spawn(function()
-			ApplyLucideToImageLabel(imageLabel, iconName, color, size or 64)
-		end)
-	else
-		-- rbxassetid atau URL biasa
-		imageLabel.Image = iconStr or ""
-	end
+-- Daftarkan Lucide pack
+do
+    local lucidePack = { Icons = {}, Spritesheets = {} }
+    for iconName, assetId in pairs(LUCIDE_ICONS) do
+        local id = "rbxassetid://" .. tostring(assetId)
+        lucidePack.Icons[iconName] = {
+            Image             = id,
+            ImageRectSize     = Vector2.new(0, 0),
+            ImageRectPosition = Vector2.new(0, 0),
+        }
+        lucidePack.Spritesheets[id] = id
+    end
+    IconModule.Icons["lucide"] = lucidePack
 end
 
 -- ================================================
--- END LUCIDE ICON SYSTEM
+-- END ICON MODULE
 -- ================================================
+
 
 local function MakeDraggable(topbarobject, object)
 	local function CustomPos(topbarobject, object)
@@ -424,6 +392,7 @@ function CircleClick(Button, X, Y)
 end
 
 local NealmtroyLib = {}
+NealmtroyLib.IconModule = IconModule  -- expose agar user bisa AddIcons custom pack
 function NealmtroyLib:MakeNotify(NotifyConfig)
 	local NotifyConfig = NotifyConfig or {}
 	NotifyConfig.Title = NotifyConfig.Title or "Hirimi Hub"
@@ -1241,7 +1210,7 @@ function NealmtroyLib:MakeGui(GuiConfig)
 		FeatureImg.Size = UDim2.new(0, 16, 0, 16)
 		FeatureImg.Name = "FeatureImg"
 		FeatureImg.Parent = Tab
-		ApplyIcon(FeatureImg, TabConfig.Icon, TabConfig.IconColor, 32)
+		ApplyIconToLabel(FeatureImg, TabConfig.Icon, TabConfig.IconColor)
 		if CountTab == 0 then
 			LayersPageLayout:JumpToIndex(0)
 			NameTab.Text = TabConfig.Name
@@ -1669,7 +1638,7 @@ function NealmtroyLib:MakeGui(GuiConfig)
 				FeatureImg3.Size = UDim2.new(1, 0, 1, 0)
 				FeatureImg3.Name = "FeatureImg"
 				FeatureImg3.Parent = FeatureFrame1
-				ApplyIcon(FeatureImg3, ButtonConfig.Icon, ButtonConfig.IconColor, 32)
+				ApplyIconToLabel(FeatureImg3, ButtonConfig.Icon, ButtonConfig.IconColor)
 
 				ButtonButton.Activated:Connect(function()
 					CircleClick(ButtonButton, Mouse.X, Mouse.Y)
